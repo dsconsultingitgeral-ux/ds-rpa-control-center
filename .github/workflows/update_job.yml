@@ -1,0 +1,29 @@
+name: Job Diário de Atualização do RPA
+
+on:
+  schedule:
+    # Executa automaticamente 1 vez por dia (à meia-noite 00:00 UTC)
+    - cron: '0 0 * * *'
+  # Permite a execução manual no separador Actions
+  workflow_dispatch:
+
+jobs:
+  run-update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Instalar Dependências
+        run: pip install supabase
+
+      - name: Executar script de atualização
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python cron_update.py
