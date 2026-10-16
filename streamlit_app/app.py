@@ -64,22 +64,25 @@ except Exception as e:
     st.stop()
 
 # -------------------------------------------------------------------------
-# 4. AQUISIÇÃO E TRATAMENTO DOS DADOS (FORÇANDO O ESQUEMA PUBLIC)
+# 4. AQUISIÇÃO E TRATAMENTO DOS DADOS
 # -------------------------------------------------------------------------
 @st.cache_data(ttl=10)
 def fetch_data():
     try:
-        # Força explicitamente a consulta ao esquema public da base de dados
-        response = supabase.schema("public").table("rpa_execucoes").select("*").execute()
-        return pd.DataFrame(response.data)
+        # Executa a query limpa diretamente na tabela rpa_execucoes
+        response = supabase.table("rpa_execucoes").select("*").execute()
+        if response.data:
+            return pd.DataFrame(response.data)
+        else:
+            return pd.DataFrame()
     except Exception as err:
-        st.error(f"Erro crítico no pedido ao Supabase: {err}")
+        st.error(f"Erro ao obter dados: {err}")
         return pd.DataFrame()
 
 df_raw = fetch_data()
 
 if df_raw.empty:
-    st.warning("⚠️ A tabela `rpa_execucoes` devolveu zero linhas. Verifique se o nome da tabela no Supabase é exatamente `rpa_execucoes`.")
+    st.warning("⚠️ A tabela `rpa_execucoes` devolveu zero linhas. Confirme se as políticas RLS no Supabase permitem leitura.")
     st.stop()
 
 df_raw['duration_minutes'] = df_raw['duration_seconds'] / 60.0
