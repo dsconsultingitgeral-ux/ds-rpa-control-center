@@ -18,7 +18,7 @@ st.set_page_config(
 # 2. SISTEMA DE AUTENTICAÇÃO SEGURO
 # -------------------------------------------------------------------------
 def check_password():
-    """Valida se o utilizador está autenticado com base nos dados definidos em st.secrets."""
+    """Valida se o utilizador está autenticado com base nos segredos do Streamlit."""
     if "authenticated" not in st.session_state:
         st.session_state["authenticated"] = False
 
@@ -32,12 +32,11 @@ def check_password():
         st.markdown("## 🔐 Robot Virtual")
         st.markdown("### Painel de Controlo — Autenticação Segura")
         
-        # Campos de entrada de credenciais
-        username_input = st.text_input("Utilizador", value="admin")
+        # Campo de utilizador agora VAZIO por predefinição (sem mostrar "admin")
+        username_input = st.text_input("Utilizador", value="")
         password_input = st.text_input("Palavra-passe", type="password")
         
         if st.button("Entrar no Sistema", use_container_width=True):
-            # Obtém as credenciais encriptadas a partir dos segredos do ambiente
             expected_user = st.secrets.get("ADMIN_USER", "admin")
             expected_pass = st.secrets.get("ADMIN_PASS", "digitalsolutions")
             
@@ -48,7 +47,6 @@ def check_password():
                 st.error("❌ Utilizador ou palavra-passe incorretos. Tente novamente.")
     return False
 
-# Interrompe a execução se não estiver autenticado
 if not check_password():
     st.stop()
 
@@ -57,7 +55,6 @@ if not check_password():
 # -------------------------------------------------------------------------
 @st.cache_resource
 def init_supabase():
-    """Inicializa o cliente do Supabase utilizando as chaves guardadas nos segredos."""
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
@@ -73,30 +70,25 @@ except Exception as e:
 # -------------------------------------------------------------------------
 @st.cache_data(ttl=10)
 def fetch_data():
-    """Vai buscar todos os registos da tabela de execuções de RPA no Supabase."""
     response = supabase.table("rpa_execucoes").select("*").order("id", desc=False).execute()
     return pd.DataFrame(response.data)
 
 df_raw = fetch_data()
 
-# Validação se a tabela contém dados
 if df_raw.empty:
     st.warning("⚠️ A tabela `rpa_execucoes` está vazia ou inacessível.")
-    st.info("Execute os scripts SQL no Supabase para popular a base de dados com o conjunto de teste.")
     st.stop()
 
-# Converter a duração de segundos para minutos para facilitar a leitura analítica
 df_raw['duration_minutes'] = df_raw['duration_seconds'] / 60.0
 
 # -------------------------------------------------------------------------
-# 5. BARRA LATERAL (FILTROS INTELIGENTES E PARQUE COMPLETO)
+# 5. BARRA LATERAL (FILTROS INTELIGENTES)
 # -------------------------------------------------------------------------
 st.sidebar.title("🤖 Robot Virtual")
 st.sidebar.markdown("### Painel de Controlo")
 st.sidebar.markdown("---")
 st.sidebar.header("🔍 Filtros de Auditoria")
 
-# Opção para auditar todo o parque ou selecionar individualmente
 ambientes = ["Todos"] + list(df_raw['environment'].unique())
 ambiente_escolhido = st.sidebar.selectbox("Ambiente", ambientes)
 
@@ -113,7 +105,6 @@ if st.sidebar.button("🚪 Terminar Sessão", use_container_width=True):
     st.session_state["authenticated"] = False
     st.rerun()
 
-# Aplicação dinâmica dos filtros selecionados ao DataFrame
 df_filtrado = df_raw.copy()
 if ambiente_escolhido != "Todos":
     df_filtrado = df_filtrado[df_filtrado['environment'] == ambiente_escolhido]
@@ -125,19 +116,17 @@ if termo_pesquisa:
     df_filtrado = df_filtrado[df_filtrado['logs'].str.contains(termo_pesquisa, case=False, na=False)]
 
 # -------------------------------------------------------------------------
-# 6. TÍTULO PRINCIPAL E BLOCOS DE KPIS
+# 6. TÍTULO PRINCIPAL E KPIS
 # -------------------------------------------------------------------------
 st.title("🤖 Robot Virtual — Painel de Controlo")
 st.markdown("Monitorização centralizada e em tempo real do parque de robôs, auditoria de execuções e análise proativa de falhas.")
 
-# Cálculo das métricas principais baseadas nos filtros ativos
 total_execucoes = len(df_filtrado)
 sucessos = len(df_filtrado[df_filtrado['status'] == 'OK'])
 total_kos = len(df_filtrado[df_filtrado['status'] == 'KO'])
 taxa_sucesso = (sucessos / total_execucoes * 100) if total_execucoes > 0 else 0
 tempo_medio = df_filtrado['duration_minutes'].mean() if total_execucoes > 0 else 0
 
-# Exibição dos 4 blocos de KPI no topo
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("📊 Total de Execuções", total_execucoes)
 col2.metric("✅ Taxa de Sucesso", f"{taxa_sucesso:.1f}%")
@@ -150,18 +139,15 @@ st.markdown("---")
 # 7. SISTEMA DE ALERTAS INTELIGENTES (5 REGRAS PARAMETRIZADAS)
 # -------------------------------------------------------------------------
 if total_execucoes > 0:
-    # Identificar data mais recente para simular verificação de falhas nas últimas 24h
     data_recente = df_filtrado['start_time_date'].max()
     erros_recentes = len(df_filtrado[(df_filtrado['status'] == 'KO') & (df_filtrado['start_time_date'] == data_recente)])
     
-    # Verificar se as últimas 2 execuções falharam consecutivamente
     ultimas_duas_ko = False
     if len(df_filtrado) >= 2:
         ultimos_status = df_filtrado.sort_values(by='id', ascending=False)['status'].head(2).tolist()
         if all(s == 'KO' for s in ultimos_status):
             ultimas_duas_ko = True
 
-    # Avaliação proativa das 5 regras parametrizadas
     if taxa_sucesso < 50.0:
         st.error(f"🚨 **Alerta Crítico:** A taxa de sucesso atual é de apenas **{taxa_sucesso:.1f}%** (abaixo do limiar de 50%). Requer intervenção prioritária.")
     elif ultimas_duas_ko:
@@ -185,7 +171,6 @@ col_g1, col_g2, col_g3 = st.columns(3)
 with col_g1:
     st.markdown("##### 📈 Evolução da Duração (Min)")
     if not df_filtrado.empty:
-        # Gráfico de linha temporal por ID e Robot para detetar picos de lentidão
         fig_linha = px.line(
             df_filtrado, x="id", y="duration_minutes", color="robot_name",
             markers=True, labels={"id": "ID Execução", "duration_minutes": "Duração (Min)", "robot_name": "Robô"}
@@ -198,7 +183,6 @@ with col_g1:
 with col_g2:
     st.markdown("##### 🍩 Taxa de Sucesso (OK / KO)")
     if total_execucoes > 0:
-        # Gráfico circular / rosca com cores padronizadas (Verde para OK, Vermelho para KO)
         df_status_counts = df_filtrado['status'].value_counts().reset_index()
         df_status_counts.columns = ['status', 'count']
         fig_donut = px.pie(
@@ -214,7 +198,6 @@ with col_g3:
     st.markdown("##### 📊 Categorias de Erro")
     df_kos = df_filtrado[df_filtrado['status'] == 'KO']
     if not df_kos.empty and df_kos['error_category'].notna().any():
-        # Gráfico de barras horizontais limpo para acomodar descrições de erro
         fig_bar = px.bar(
             df_kos['error_category'].value_counts().reset_index(),
             x='count', y='error_category', orientation='h',
@@ -233,7 +216,6 @@ st.markdown("---")
 st.subheader("Auditoria e Registo de Logs")
 
 if not df_filtrado.empty:
-    # Tabela principal resumida do parque filtrado
     colunas_tabela = [
         'id', 'id_robot', 'robot_name', 'environment', 
         'start_time_date', 'start_time_hour', 'duration_seconds', 'status'
@@ -244,17 +226,14 @@ if not df_filtrado.empty:
     ids_disponiveis = df_filtrado['id'].tolist()
     
     if ids_disponiveis:
-        # Seletor interativo para auditar uma execução específica
         id_selecionado = st.selectbox("Selecione o ID da Execução para inspecionar os logs:", ids_disponiveis)
         registo = df_filtrado[df_filtrado['id'] == id_selecionado].iloc[0]
         
-        # Metadados rápidos da execução selecionada
         info1, info2, info3 = st.columns(3)
         info1.markdown(f"**Robô:** {registo['robot_name']} (`ID: {registo['id_robot']}`)")
         info2.markdown(f"**Data/Hora:** {registo['start_time_date']} às {registo['start_time_hour']}")
         info3.markdown(f"**Estado Final:** `{registo['status']}`")
 
-        # Caixa de consola com os logs completos linha a linha
         log_conteudo = registo['logs'] if pd.notna(registo['logs']) else "Sem logs registados para esta execução."
         st.code(log_conteudo, language="text")
 else:
