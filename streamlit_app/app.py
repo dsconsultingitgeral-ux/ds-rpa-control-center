@@ -25,14 +25,12 @@ def check_password():
     if st.session_state["authenticated"]:
         return True
 
-    # Layout centralizado e limpo para o Login
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.markdown("## 🔐 Robot Virtual")
         st.markdown("### Painel de Controlo — Autenticação Segura")
         
-        # Campo de utilizador vazio por predefinição
         username_input = st.text_input("Utilizador", value="")
         password_input = st.text_input("Palavra-passe", type="password")
         
@@ -66,15 +64,13 @@ except Exception as e:
     st.stop()
 
 # -------------------------------------------------------------------------
-# 4. AQUISIÇÃO E TRATAMENTO DOS DADOS (COM DIAGNÓSTICO)
+# 4. AQUISIÇÃO E TRATAMENTO DOS DADOS (FORÇANDO O ESQUEMA PUBLIC)
 # -------------------------------------------------------------------------
 @st.cache_data(ttl=10)
 def fetch_data():
     try:
-        response = supabase.table("rpa_execucoes").select("*").execute()
-        # Mostra o resultado cru no ecrã para diagnóstico imediato
-        st.info("🔍 [Modo Diagnóstico] Resposta recebida do Supabase:")
-        st.write(response)
+        # Força explicitamente a consulta ao esquema public da base de dados
+        response = supabase.schema("public").table("rpa_execucoes").select("*").execute()
         return pd.DataFrame(response.data)
     except Exception as err:
         st.error(f"Erro crítico no pedido ao Supabase: {err}")
@@ -83,7 +79,7 @@ def fetch_data():
 df_raw = fetch_data()
 
 if df_raw.empty:
-    st.warning("⚠️ A tabela `rpa_execucoes` devolveu zero linhas ou ocorreu um erro de estrutura.")
+    st.warning("⚠️ A tabela `rpa_execucoes` devolveu zero linhas. Verifique se o nome da tabela no Supabase é exatamente `rpa_execucoes`.")
     st.stop()
 
 df_raw['duration_minutes'] = df_raw['duration_seconds'] / 60.0
