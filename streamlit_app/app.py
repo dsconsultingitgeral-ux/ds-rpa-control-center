@@ -32,7 +32,7 @@ def check_password():
         st.markdown("## 🔐 Robot Virtual")
         st.markdown("### Painel de Controlo — Autenticação Segura")
         
-        # Campo de utilizador agora VAZIO por predefinição (sem mostrar "admin")
+        # Campo de utilizador vazio por predefinição
         username_input = st.text_input("Utilizador", value="")
         password_input = st.text_input("Palavra-passe", type="password")
         
@@ -66,17 +66,24 @@ except Exception as e:
     st.stop()
 
 # -------------------------------------------------------------------------
-# 4. AQUISIÇÃO E TRATAMENTO DOS DADOS
+# 4. AQUISIÇÃO E TRATAMENTO DOS DADOS (COM DIAGNÓSTICO)
 # -------------------------------------------------------------------------
 @st.cache_data(ttl=10)
 def fetch_data():
-    response = supabase.table("rpa_execucoes").select("*").order("id", desc=False).execute()
-    return pd.DataFrame(response.data)
+    try:
+        response = supabase.table("rpa_execucoes").select("*").execute()
+        # Mostra o resultado cru no ecrã para diagnóstico imediato
+        st.info("🔍 [Modo Diagnóstico] Resposta recebida do Supabase:")
+        st.write(response)
+        return pd.DataFrame(response.data)
+    except Exception as err:
+        st.error(f"Erro crítico no pedido ao Supabase: {err}")
+        return pd.DataFrame()
 
 df_raw = fetch_data()
 
 if df_raw.empty:
-    st.warning("⚠️ A tabela `rpa_execucoes` está vazia ou inacessível.")
+    st.warning("⚠️ A tabela `rpa_execucoes` devolveu zero linhas ou ocorreu um erro de estrutura.")
     st.stop()
 
 df_raw['duration_minutes'] = df_raw['duration_seconds'] / 60.0
@@ -89,10 +96,10 @@ st.sidebar.markdown("### Painel de Controlo")
 st.sidebar.markdown("---")
 st.sidebar.header("🔍 Filtros de Auditoria")
 
-ambientes = ["Todos"] + list(df_raw['environment'].unique())
+ambientes = ["Todos"] + list(df_raw['environment'].unique()) if 'environment' in df_raw.columns else ["Todos"]
 ambiente_escolhido = st.sidebar.selectbox("Ambiente", ambientes)
 
-robos = ["Todos"] + list(df_raw['robot_name'].unique())
+robos = ["Todos"] + list(df_raw['robot_name'].unique()) if 'robot_name' in df_raw.columns else ["Todos"]
 robo_escolhido = st.sidebar.selectbox("Robot Virtual", robos)
 
 status_opcoes = ["Todos", "OK", "KO"]
@@ -106,13 +113,13 @@ if st.sidebar.button("🚪 Terminar Sessão", use_container_width=True):
     st.rerun()
 
 df_filtrado = df_raw.copy()
-if ambiente_escolhido != "Todos":
+if ambiente_escolhido != "Todos" and 'environment' in df_filtrado.columns:
     df_filtrado = df_filtrado[df_filtrado['environment'] == ambiente_escolhido]
-if robo_escolhido != "Todos":
+if robo_escolhido != "Todos" and 'robot_name' in df_filtrado.columns:
     df_filtrado = df_filtrado[df_filtrado['robot_name'] == robo_escolhido]
-if status_escolhido != "Todos":
+if status_escolhido != "Todos" and 'status' in df_filtrado.columns:
     df_filtrado = df_filtrado[df_filtrado['status'] == status_escolhido]
-if termo_pesquisa:
+if termo_pesquisa and 'logs' in df_filtrado.columns:
     df_filtrado = df_filtrado[df_filtrado['logs'].str.contains(termo_pesquisa, case=False, na=False)]
 
 # -------------------------------------------------------------------------
@@ -122,8 +129,8 @@ st.title("🤖 Robot Virtual — Painel de Controlo")
 st.markdown("Monitorização centralizada e em tempo real do parque de robôs, auditoria de execuções e análise proativa de falhas.")
 
 total_execucoes = len(df_filtrado)
-sucessos = len(df_filtrado[df_filtrado['status'] == 'OK'])
-total_kos = len(df_filtrado[df_filtrado['status'] == 'KO'])
+sucessos = len(df_filtrado[df_filtrado['status'] == 'OK']) if 'status' in df_filtrado.columns else 0
+total_kos = len(df_filtrado[df_filtrado['status'] == 'KO']) if 'status' in df_filtrado.columns else 0
 taxa_sucesso = (sucessos / total_execucoes * 100) if total_execucoes > 0 else 0
 tempo_medio = df_filtrado['duration_minutes'].mean() if total_execucoes > 0 else 0
 
@@ -138,12 +145,12 @@ st.markdown("---")
 # -------------------------------------------------------------------------
 # 7. SISTEMA DE ALERTAS INTELIGENTES (5 REGRAS PARAMETRIZADAS)
 # -------------------------------------------------------------------------
-if total_execucoes > 0:
+if total_execucoes > 0 and 'start_time_date' in df_filtrado.columns:
     data_recente = df_filtrado['start_time_date'].max()
     erros_recentes = len(df_filtrado[(df_filtrado['status'] == 'KO') & (df_filtrado['start_time_date'] == data_recente)])
     
     ultimas_duas_ko = False
-    if len(df_filtrado) >= 2:
+    if len(df_filtrado) >= 2 and 'id' in df_filtrado.columns:
         ultimos_status = df_filtrado.sort_values(by='id', ascending=False)['status'].head(2).tolist()
         if all(s == 'KO' for s in ultimos_status):
             ultimas_duas_ko = True
@@ -170,7 +177,7 @@ col_g1, col_g2, col_g3 = st.columns(3)
 
 with col_g1:
     st.markdown("##### 📈 Evolução da Duração (Min)")
-    if not df_filtrado.empty:
+    if not df_filtrado.empty and 'id' in df_filtrado.columns and 'duration_minutes' in df_filtrado.columns:
         fig_linha = px.line(
             df_filtrado, x="id", y="duration_minutes", color="robot_name",
             markers=True, labels={"id": "ID Execução", "duration_minutes": "Duração (Min)", "robot_name": "Robô"}
@@ -182,7 +189,7 @@ with col_g1:
 
 with col_g2:
     st.markdown("##### 🍩 Taxa de Sucesso (OK / KO)")
-    if total_execucoes > 0:
+    if total_execucoes > 0 and 'status' in df_filtrado.columns:
         df_status_counts = df_filtrado['status'].value_counts().reset_index()
         df_status_counts.columns = ['status', 'count']
         fig_donut = px.pie(
@@ -196,17 +203,20 @@ with col_g2:
 
 with col_g3:
     st.markdown("##### 📊 Categorias de Erro")
-    df_kos = df_filtrado[df_filtrado['status'] == 'KO']
-    if not df_kos.empty and df_kos['error_category'].notna().any():
-        fig_bar = px.bar(
-            df_kos['error_category'].value_counts().reset_index(),
-            x='count', y='error_category', orientation='h',
-            labels={'count': 'Total de Erros', 'error_category': 'Categoria'}
-        )
-        fig_bar.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=280, yaxis={'categoryorder':'total ascending'})
-        st.plotly_chart(fig_bar, use_container_width=True)
+    if 'status' in df_filtrado.columns and 'error_category' in df_filtrado.columns:
+        df_kos = df_filtrado[df_filtrado['status'] == 'KO']
+        if not df_kos.empty and df_kos['error_category'].notna().any():
+            fig_bar = px.bar(
+                df_kos['error_category'].value_counts().reset_index(),
+                x='count', y='error_category', orientation='h',
+                labels={'count': 'Total de Erros', 'error_category': 'Categoria'}
+            )
+            fig_bar.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=280, yaxis={'categoryorder':'total ascending'})
+            st.plotly_chart(fig_bar, use_container_width=True)
+        else:
+            st.info("Sem erros registados nos filtros atuais.")
     else:
-        st.info("Sem erros registados nos filtros atuais.")
+        st.info("Sem dados de erro disponíveis.")
 
 st.markdown("---")
 
@@ -216,25 +226,23 @@ st.markdown("---")
 st.subheader("Auditoria e Registo de Logs")
 
 if not df_filtrado.empty:
-    colunas_tabela = [
-        'id', 'id_robot', 'robot_name', 'environment', 
-        'start_time_date', 'start_time_hour', 'duration_seconds', 'status'
-    ]
-    st.dataframe(df_filtrado[colunas_tabela], use_container_width=True, hide_index=True)
+    colunas_disponiveis = [col for col in ['id', 'id_robot', 'robot_name', 'environment', 'start_time_date', 'start_time_hour', 'duration_seconds', 'status'] if col in df_filtrado.columns]
+    st.dataframe(df_filtrado[colunas_disponiveis], use_container_width=True, hide_index=True)
 
-    st.markdown("### Inspetor de Consola (Logs Detalhados)")
-    ids_disponiveis = df_filtrado['id'].tolist()
-    
-    if ids_disponiveis:
-        id_selecionado = st.selectbox("Selecione o ID da Execução para inspecionar os logs:", ids_disponiveis)
-        registo = df_filtrado[df_filtrado['id'] == id_selecionado].iloc[0]
+    if 'id' in df_filtrado.columns and 'logs' in df_filtrado.columns:
+        st.markdown("### Inspetor de Consola (Logs Detalhados)")
+        ids_disponiveis = df_filtrado['id'].tolist()
         
-        info1, info2, info3 = st.columns(3)
-        info1.markdown(f"**Robô:** {registo['robot_name']} (`ID: {registo['id_robot']}`)")
-        info2.markdown(f"**Data/Hora:** {registo['start_time_date']} às {registo['start_time_hour']}")
-        info3.markdown(f"**Estado Final:** `{registo['status']}`")
+        if ids_disponiveis:
+            id_selecionado = st.selectbox("Selecione o ID da Execução para inspecionar os logs:", ids_disponiveis)
+            registo = df_filtrado[df_filtrado['id'] == id_selecionado].iloc[0]
+            
+            info1, info2, info3 = st.columns(3)
+            info1.markdown(f"**Robô:** {registo.get('robot_name', 'N/A')} (`ID: {registo.get('id_robot', 'N/A')}`)")
+            info2.markdown(f"**Data/Hora:** {registo.get('start_time_date', 'N/A')} às {registo.get('start_time_hour', 'N/A')}")
+            info3.markdown(f"**Estado Final:** `{registo.get('status', 'N/A')}`")
 
-        log_conteudo = registo['logs'] if pd.notna(registo['logs']) else "Sem logs registados para esta execução."
-        st.code(log_conteudo, language="text")
+            log_conteudo = registo.get('logs', 'Sem logs.') if pd.notna(registo.get('logs')) else "Sem logs registados para esta execução."
+            st.code(log_conteudo, language="text")
 else:
     st.warning("Nenhum registo encontrado com os filtros aplicados.")
